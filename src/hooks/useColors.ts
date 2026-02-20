@@ -47,8 +47,6 @@ export const useBackgroundColors = (progress: SharedValue<number>) => {
         const getVal = (arr: number[]) => interpolate(t, s, arr);
 
         return {
-            t,
-
             // SKY
             sky1: getCol(LUT.sky1),
             sky2: getCol(LUT.sky2),

@@ -5,10 +5,11 @@ import { useLocation } from '../hooks/useLocation';
 import { initDB, SleepLogic, toISODate, DataLogic } from '../db/logic';
 import { useStorage } from '../db/storage';
 import * as Haptics from 'expo-haptics';
-import { SharedValue, withTiming } from 'react-native-reanimated';
+import { SharedValue, useAnimatedReaction, withTiming } from 'react-native-reanimated';
 import { DateTime } from 'luxon';
 import Slider from '@react-native-community/slider';
 import { getProgress } from '../hooks/useColors';
+import { runOnJS } from 'react-native-worklets';
 
 export default function HomeScreen({ solarProgress }: { solarProgress: SharedValue<number> }) {
   const [dbReady, setDbReady] = useState(false);
@@ -16,6 +17,15 @@ export default function HomeScreen({ solarProgress }: { solarProgress: SharedVal
   const [isHide, setHide] = useState(false);
   const [sliderValue, setSliderValue] = useState<number>(
     DateTime.now().diff(DateTime.now().startOf('day'),'hours').hours
+  );
+
+  const [displayProgress, setDisplayProgress] = useState(0);
+
+  useAnimatedReaction(
+    () => solarProgress.value,
+    (val) => {
+      runOnJS(setDisplayProgress)(val);
+    }
   );
 
   const currentSession = useStorage((state) => state.currentSession);
@@ -126,7 +136,7 @@ export default function HomeScreen({ solarProgress }: { solarProgress: SharedVal
         </TouchableOpacity>
 
       </>) : (<>
-        <Text style={{ margin: 'auto' }}>{solarProgress.value}, {sliderValue}, {getProgress(sliderValue)}</Text>
+        <Text style={{ margin: 'auto' }}>{displayProgress}, {sliderValue}, {getProgress(sliderValue)}</Text>
         <Slider
           style={{ width: '70%', height: 40, margin: 'auto' }}
           minimumValue={0}
