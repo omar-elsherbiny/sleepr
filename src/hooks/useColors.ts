@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useSharedValue, useDerivedValue, interpolateColor, interpolate, withTiming, Easing } from 'react-native-reanimated';
+import { useDerivedValue, interpolateColor, interpolate, withTiming, Easing, SharedValue } from 'react-native-reanimated';
 import { DateTime } from 'luxon';
 import { fromEpochSec, SunLogic, toEpochSec } from '../db/logic';
 import { useLocation } from '../hooks/useLocation';
@@ -7,46 +7,40 @@ import { backgroundColorLUT as LUT } from '../constants/colors';
 
 const updateInterval = 10000; // 60*1000 (ms in 1 minute)
 
-export const useBackgroundColors = (hour?: number) => {
-    const solarProgress = useSharedValue(0);
+const getProgress = (hour?: number) => {
+    let now = DateTime.local();
+    if (hour !== undefined) now = now.set({ hour, minute: 0, second: 0 });
     // const { location } = useLocation();
-
-    useEffect(() => {
-        const updateSolarPosition = () => {
-            let now = DateTime.local();
-            if (hour) now = now.set({ hour, minute: hour / 60, second: hour / 3600 });
-            // const sunData = SunLogic.request({
+    // const sunData = SunLogic.request({
             //     date: now,
             //     lat: location?.coords.latitude,
             //     lon: location?.coords.longitude
             // });
-            const sunData = {
-                sunrise: toEpochSec("2026-02-19T04:36:17+00:00")!,
-                sunset: toEpochSec("2026-02-19T15:51:44+00:00")!,
-                daylength: 40527,
-            }
+    const sunData = {
+        sunrise: toEpochSec("2026-02-19T04:36:17+00:00")!,
+        daylength: 40527,
+    };
 
-            const secondsSinceSunrise = now.diff(
-                fromEpochSec(sunData.sunrise),
-                'seconds'
-            ).seconds;
+    const secondsSinceSunrise = now.diff(DateTime.fromSeconds(sunData.sunrise), 'seconds').seconds;
+    return secondsSinceSunrise / sunData.daylength;
+};
 
-            // Normalize time: 0 = Sunrise, 1 = Sunset
-            const newProgress = secondsSinceSunrise / sunData.daylength;
-
-            solarProgress.value = withTiming(newProgress, {
+export const useBackgroundColors = (progress: SharedValue<number>) => {
+    useEffect(() => {
+        const update = () => {
+            progress.value = withTiming(getProgress(), {
                 duration: 1000,
                 easing: Easing.linear,
             });
         };
 
-        updateSolarPosition();
-        const interval = setInterval(updateSolarPosition, updateInterval);
+        update();
+        const interval = setInterval(update, updateInterval);
         return () => clearInterval(interval);
-    }, [hour]);
+    }, [progress]);
 
     return useDerivedValue(() => {
-        const t = solarProgress.value;
+        const t = progress.value;
         const s = LUT.stops;
 
         const getCol = (arr: string[]) => interpolateColor(t, s, arr);

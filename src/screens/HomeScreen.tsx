@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity, Switch } from 'react-native';
+import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity, Switch, Easing } from 'react-native';
 import { useLocation } from '../hooks/useLocation';
 import { initDB, SleepLogic, toISODate, DataLogic } from '../db/logic';
 import { useStorage } from '../db/storage';
 import * as Haptics from 'expo-haptics';
+import { SharedValue, withTiming } from 'react-native-reanimated';
+import { DateTime } from 'luxon';
+import Slider from '@react-native-community/slider';
 
-export default function HomeScreen() {
+export default function HomeScreen({ solarProgress }: { solarProgress: SharedValue<number> }) {
   const [dbReady, setDbReady] = useState(false);
   const { location, errorMsg, loading: locationLoading, refresh: refreshLocation } = useLocation();
   const [isHide, setHide] = useState(false);
+  const [sliderValue, setSliderValue] = useState<number>(DateTime.now().hour);
 
   const currentSession = useStorage((state) => state.currentSession);
   const isTracking = !!currentSession;
@@ -118,7 +122,22 @@ export default function HomeScreen() {
           <Text style={styles.buttonText}>EXPORT</Text>
         </TouchableOpacity>
 
-      </>) : (<></>)}
+      </>) : (<>
+        <Text style={{ margin: 'auto' }}>{solarProgress.value}, {sliderValue}, {sliderValue / 24}</Text>
+        <Slider
+          style={{ width: '70%', height: 40, margin: 'auto' }}
+          minimumValue={0}
+          maximumValue={24}
+          value={sliderValue}
+          onValueChange={(value) => {
+            setSliderValue(value);
+            solarProgress.value = withTiming(value / 24, {
+              duration: 1000,
+              easing: Easing.linear,
+            });
+          }}
+        />
+      </>)}
     </View>
   );
 }
