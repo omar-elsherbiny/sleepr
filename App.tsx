@@ -6,11 +6,12 @@ import SettingsScreen from "./src/screens/SettingsScreen";
 import StatsScreen from "./src/screens/StatsScreen";
 import BackgroundScreen from "./src/screens/BackgroundScreen";
 import { useSharedValue } from "react-native-reanimated";
+import { getProgress } from "./src/hooks/useColors";
 
 export default function App() {
   const [navState, setNavState] = useState<"Home" | "Statistics" | "Settings">('Home');
 
-  const solarProgress = useSharedValue(0);
+  const solarProgress = useSharedValue(getProgress());
 
   const page = {
     "Home": <HomeScreen solarProgress={solarProgress} />,

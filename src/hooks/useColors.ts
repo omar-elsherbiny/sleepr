@@ -7,9 +7,9 @@ import { backgroundColorLUT as LUT } from '../constants/colors';
 
 const updateInterval = 10000; // 60*1000 (ms in 1 minute)
 
-const getProgress = (hour?: number) => {
+export const getProgress = (hour?: number) => {
     let now = DateTime.local();
-    if (hour !== undefined) now = now.set({ hour, minute: 0, second: 0 });
+    if (hour !== undefined) now = now.set({ hour });
     // const { location } = useLocation();
     // const sunData = SunLogic.request({
             //     date: now,
@@ -17,7 +17,7 @@ const getProgress = (hour?: number) => {
             //     lon: location?.coords.longitude
             // });
     const sunData = {
-        sunrise: toEpochSec("2026-02-19T04:36:17+00:00")!,
+        sunrise: toEpochSec("2026-02-20T04:36:17+00:00")!,
         daylength: 40527,
     };
 
