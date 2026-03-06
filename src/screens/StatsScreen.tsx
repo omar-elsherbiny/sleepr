@@ -40,29 +40,42 @@ export default function StatsScreen() {
           <View style={styles.selector}></View>
         </View>
 
-        <View style={styles.grid}>
-          <View style={[styles.card, styles.cardLarge]}>
-            <Text style={styles.cardText}>Steps</Text>
-          </View>
+        <Skeleton
+          containerStyle={styles.grid}
+          isLoading={true}
+          layout={[
+            { key: "steps", width: "100%", height: 220, marginBottom: 12 }, // cardLarge
+            { key: "calories", width: "48%", height: 96, marginBottom: 12 }, // cardSmall
+            { key: "distance", width: "48%", height: 96, marginBottom: 12 }, // cardSmall
+            { key: "sleep", width: "100%", height: 120, marginBottom: 12 }, // cardWide
+            { key: "heartRate", width: "48%", height: 96, marginBottom: 12 }, // cardMedium
+            { key: "workouts", width: "48%", height: 96, marginBottom: 12 }, // cardMedium
+          ]}
+        >
+          <View style={styles.grid}>
+            <View style={[styles.card, styles.cardLarge]}>
+              <Text style={styles.cardText}>Steps</Text>
+            </View>
 
-          <View style={[styles.card, styles.cardSmall]}>
-            <Text style={styles.cardText}>Calories</Text>
-          </View>
-          <View style={[styles.card, styles.cardSmall]}>
-            <Text style={styles.cardText}>Distance</Text>
-          </View>
+            <View style={[styles.card, styles.cardSmall]}>
+              <Text style={styles.cardText}>Calories</Text>
+            </View>
+            <View style={[styles.card, styles.cardSmall]}>
+              <Text style={styles.cardText}>Distance</Text>
+            </View>
 
-          <View style={[styles.card, styles.cardWide]}>
-            <Text style={styles.cardText}>Sleep</Text>
-          </View>
+            <View style={[styles.card, styles.cardWide]}>
+              <Text style={styles.cardText}>Sleep</Text>
+            </View>
 
-          <View style={[styles.card, styles.cardMedium]}>
-            <Text style={styles.cardText}>Heart Rate</Text>
+            <View style={[styles.card, styles.cardMedium]}>
+              <Text style={styles.cardText}>Heart Rate</Text>
+            </View>
+            <View style={[styles.card, styles.cardMedium]}>
+              <Text style={styles.cardText}>Workouts</Text>
+            </View>
           </View>
-          <View style={[styles.card, styles.cardMedium]}>
-            <Text style={styles.cardText}>Workouts</Text>
-          </View>
-        </View>
+        </Skeleton>
 
       </ScrollView>
     </View>
