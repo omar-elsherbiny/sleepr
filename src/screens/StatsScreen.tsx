@@ -40,11 +40,14 @@ export default function StatsScreen() {
           <View style={styles.selector}></View>
         </View>
 
-        <Skeleton
+        {/* <Skeleton
           containerStyle={styles.grid}
           isLoading={true}
+          boneColor='#2e2e2e'
+          highlightColor='#515151'
+          animationDirection='diagonalTopLeft'
           layout={[
-            { key: "steps", width: "100%", height: 220, marginBottom: 12 }, // cardLarge
+            { key: "steps", width: "100%", height: 220, marginBottom: 12,borderRadius:20 }, // cardLarge
             { key: "calories", width: "48%", height: 96, marginBottom: 12 }, // cardSmall
             { key: "distance", width: "48%", height: 96, marginBottom: 12 }, // cardSmall
             { key: "sleep", width: "100%", height: 120, marginBottom: 12 }, // cardWide
@@ -75,7 +78,7 @@ export default function StatsScreen() {
               <Text style={styles.cardText}>Workouts</Text>
             </View>
           </View>
-        </Skeleton>
+        </Skeleton> */}
 
       </ScrollView>
     </View>
