@@ -12,8 +12,8 @@ import { useSharedValue } from 'react-native-reanimated';
 import useStats from '../hooks/useStats';
 
 const Graph = Platform.OS == 'web' ?
-    lazy(() => import('../components/Stats/Graph')) :
-    require('../components/Stats/Graph').default
+  lazy(() => import('../components/Stats/Graph')) :
+  require('../components/Stats/Graph').default
 
 const PAGE_WIDTH = Dimensions.get('window').width * 0.9;
 
@@ -33,7 +33,19 @@ export default function StatsScreen() {
     setRefreshing(false);
   }, []);
 
-  const { isLoading, currentSessions, fetchedSessions, fetchedRange, currentRange, setCurrentRange } = useStats();
+  const {
+    isLoading,
+
+    currentRange,
+    setCurrentRange,
+    panRange,
+
+    chunkUnit,
+    setChunkUnit,
+
+    currentSessions,
+    fetchedSessions
+  } = useStats();
 
   const [all, setAll] = useState<SleepSessionRecord[]>([]);
 
@@ -97,7 +109,6 @@ export default function StatsScreen() {
           {!isLoading && (
             <Graph width={PAGE_WIDTH} height={200}
               fetchedSessions={fetchedSessions}
-              fetchedRange={fetchedRange}
               currentRange={currentRange}
               setCurrentRange={setCurrentRange}
             />

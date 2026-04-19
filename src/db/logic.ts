@@ -248,6 +248,55 @@ export const SleepLogic = {
 
     return await db.listSleep(rangeStartEpoch, rangeEndEpoch, match);
   },
+
+  async fakeList({ rangeStart, rangeEnd, match = 'overlapping' }: {
+    rangeStart: Timestamp,
+    rangeEnd: Timestamp,
+    match?: 'overlapping' | 'contained',
+  }): Promise<SleepSessionRecord[]> {
+    const rangeStartEpoch = toEpochSec(rangeStart);
+    const rangeEndEpoch = toEpochSec(rangeEnd);
+
+    if (rangeStartEpoch == null || rangeEndEpoch == null) throw new Error("[logic] rangeStart and rangeEnd are required");
+    if (rangeEndEpoch < rangeStartEpoch) throw new Error("[logic] rangeEnd cannot be before rangeStart");
+
+    const fakeRecords: SleepSessionRecord[] = [];
+
+    const startDay = fromEpochSec(rangeStartEpoch).startOf('day');
+    const endDay = fromEpochSec(rangeEndEpoch).endOf('day');
+
+    let currDay = startDay;
+    const nowEpoch = toEpochSec(DateTime.now())!;
+
+    while (currDay <= endDay) {
+      const baseStartSecs = currDay.plus({ hours: 22 }).toSeconds();
+      const randomStartOffset = Math.floor(Math.random() * (4 * 3600));
+      const startEpoch = (baseStartSecs + randomStartOffset) as EpochSec;
+
+      const minDuration = 6 * 3600;
+      const durationVariance = Math.floor(Math.random() * (3 * 3600));
+      const endEpoch = (startEpoch + minDuration + durationVariance) as EpochSec;
+
+      fakeRecords.push({
+        id: generateUUID(),
+        start: startEpoch,
+        end: endEpoch,
+        lat: toCoordinate(31.20),
+        lon: toCoordinate(29.92),
+        createdAt: nowEpoch
+      });
+
+      currDay = currDay.plus({ days: 1 });
+    }
+
+    return fakeRecords.filter(record => {
+      if (match === 'contained') {
+        return record.start >= rangeStartEpoch && record.end <= rangeEndEpoch;
+      } else { // overlapping
+        return record.end >= rangeStartEpoch && record.start <= rangeEndEpoch;
+      }
+    });
+  },
 };
 
 export const SunLogic = {

@@ -1,19 +1,26 @@
-import React, { memo, useMemo } from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle, Text } from 'react-native';
-import Animated, { SharedValue, useSharedValue, withTiming, Easing, useDerivedValue, useAnimatedProps } from 'react-native-reanimated';
-import { StatsLogic } from '../../db/logic';
+import React, { memo, useMemo, useState, useCallback, useEffect } from 'react';
+import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import {
+    useSharedValue,
+    withTiming,
+    Easing,
+    useDerivedValue,
+    withDecay,
+    runOnJS
+} from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { GraphDataPoint, GraphResults, SleepSessionRecord } from '../../db/types';
-import * as Haptics from 'expo-haptics';
 import { Canvas, Group, RoundedRect, SkFont, Text as SkiaText, useFont } from '@shopify/react-native-skia';
-import { Interval } from 'luxon';
+import * as Haptics from 'expo-haptics';
+import { DateTime, Interval } from 'luxon';
+import { StatsLogic } from '../../db/logic';
+import { GraphDataPoint, GraphResults, SleepSessionRecord } from '../../db/types';
+import { scheduleOnRN } from 'react-native-worklets';
 
 interface GraphProps {
     width: number;
     height: number;
 
     fetchedSessions: SleepSessionRecord[];
-    fetchedRange: Interval;
     currentRange: Interval;
     setCurrentRange: React.Dispatch<React.SetStateAction<Interval>>;
 
@@ -22,13 +29,16 @@ interface GraphProps {
 
 const BAR_WIDTH = 40;
 const GAP = 20;
+const UNIT_WIDTH = BAR_WIDTH + GAP;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const PIXELS_PER_MS = UNIT_WIDTH / MS_PER_DAY;
 
 export default function Graph({
     width,
     height,
 
     fetchedSessions,
-    fetchedRange,
     currentRange,
     setCurrentRange,
 
@@ -36,27 +46,54 @@ export default function Graph({
 }: GraphProps) {
     const font = useFont(require('../../../assets/fonts/Mona Sans/TTF/MonaSans-Regular.ttf'), 12);
 
-    const graphData: GraphResults = useMemo(() =>
-        fetchedSessions.length > 0 ? StatsLogic.getGraph(fetchedSessions, 100) : {},
-        [fetchedSessions]);
+    const [anchorDate] = useState(() => currentRange.start!.startOf('day'));
+
+    // Data
+    const graphData: GraphResults = useMemo(() => {
+        if (!fetchedSessions || fetchedSessions.length === 0) return {};
+        const maxBarHeight = height * 0.7; // Leave 30% padding for text and aesthetics
+        return StatsLogic.getGraph(
+            fetchedSessions,
+            maxBarHeight,
+            //  currentRange
+        );
+    }, [fetchedSessions, currentRange, height]);
+
     const dataArray = Object.entries(graphData);
-    // console.log(JSON.stringify(dataArray, null, 2));
-
-
-
-    // Interaction States
-    const initalOffset = currentRange.start!.diff(fetchedRange.start!, 'seconds').seconds / fetchedRange.start!.diff(fetchedRange.end!, 'seconds').seconds * width
-    const translateX = useSharedValue<number>(initalOffset);
-    const savedTranslateX = useSharedValue(0);
 
     // Gesture
+    const translateX = useSharedValue<number>(0);
+
+    const handleScrollEnd = useCallback((finalTx: number) => {
+        // Calculate the physical time window visible on the screen based on the camera position
+        const shiftMs = -finalTx / PIXELS_PER_MS;
+        const visibleStartMs = anchorDate.toMillis() + shiftMs;
+        const visibleEndMs = visibleStartMs + (width / PIXELS_PER_MS);
+
+        const newStart = DateTime.fromMillis(visibleStartMs);
+        const newEnd = DateTime.fromMillis(visibleEndMs);
+
+        // Update the hook, which triggers fetching chunks and rescaling!
+        setCurrentRange(Interval.fromDateTimes(newStart, newEnd));
+
+        // Haptic pop when snapping/rescaling occurs like Samsung Health
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }, [anchorDate, width, setCurrentRange]);
+
     const pan = Gesture.Pan()
         .onUpdate((event) => {
-            translateX.value = savedTranslateX.value + event.translationX;
+            translateX.value += event.translationX;
         })
         .onEnd((event) => {
-            // Optional: Add withDecay for momentum scrolling
-            savedTranslateX.value = translateX.value;
+            translateX.value = withDecay({
+                velocity: event.velocityX,
+                deceleration: 0.994, // Smooth, heavy friction
+            }, (finished) => {
+                if (finished) {
+                    scheduleOnRN(handleScrollEnd, translateX.value);
+                    // runOnJS(handleScrollEnd)(translateX.value);
+                }
+            });;
         });
     const pinch = Gesture.Pinch()
         .onUpdate((event) => {
@@ -75,13 +112,14 @@ export default function Graph({
             <View style={[styles.container, { width, height, borderRadius: width * 0.12 }, style]}>
                 <Canvas style={{ flex: 1 }}>
                     <Group transform={groupTranslation}>
-                        {dataArray.map(([date, point], index) => (
+                        {dataArray.map(([dateISO, point]) => (
                             <Bar
-                                key={date}
-                                index={index}
+                                key={dateISO}
+                                dateISO={dateISO}
                                 point={point}
                                 height={height}
                                 font={font!}
+                                anchorDate={anchorDate}
                             />
                         ))}
                     </Group>
@@ -91,45 +129,55 @@ export default function Graph({
     );
 };
 
-const Bar = memo(({ index, point, height, font }: {
-    index: number;
+const Bar = memo(({ dateISO, point, height, font, anchorDate }: {
+    dateISO: string;
     point: GraphDataPoint;
     height: number;
-    font: SkFont;
+    font: SkFont | null;
+    anchorDate: DateTime;
 }) => {
-    const x = useDerivedValue(() => {
-        return (index * (BAR_WIDTH + GAP));
-    });
+    // 1. Calculate absolute X position relative to the anchor coordinate system
+    const baseCanvasX = useMemo(() => {
+        const barDate = DateTime.fromISO(dateISO).startOf('day');
+        const diffMs = barDate.diff(anchorDate).milliseconds;
+        return diffMs * PIXELS_PER_MS;
+    }, [dateISO, anchorDate]);
 
+    // 2. Smoothly animate height changes when the graph rescales
+    const animHeight = useDerivedValue(() => {
+        return withTiming(point.height, { duration: 400, easing: Easing.out(Easing.cubic) });
+    }, [point.height]);
+
+    // 3. Keep the bar anchored to the bottom as it grows/shrinks
     const y = useDerivedValue(() => {
-        return height - point.height - 20;
+        return height - animHeight.value - 30; // 30px padding from the bottom
     });
 
-    const rectHeight = useDerivedValue(() => {
-        return point.height;
+    const textY = useDerivedValue(() => {
+        return y.value - 10; // Floating 10px above the bar
     });
 
-    const rectText = useDerivedValue(() => {
-        return point.durationTime;
-    });
+    if (!font) return null;
 
-    return (<>
-        <RoundedRect
-            x={x}
-            y={y}
-            width={BAR_WIDTH}
-            height={rectHeight}
-            r={8}
-            color="white"
-        />
-        <SkiaText
-            x={x}
-            y={y}
-            text={rectText}
-            font={font}
-            color="white"
-        />
-    </>);
+    return (
+        <>
+            <RoundedRect
+                x={baseCanvasX}
+                y={y}
+                width={BAR_WIDTH}
+                height={animHeight}
+                r={8}
+                color="#ffffff"
+            />
+            <SkiaText
+                x={baseCanvasX}
+                y={textY}
+                text={point.durationTime}
+                font={font}
+                color="white"
+            />
+        </>
+    );
 });
 
 const styles = StyleSheet.create({
@@ -138,5 +186,6 @@ const styles = StyleSheet.create({
         borderColor: "#ffffff99",
         borderWidth: 2,
         paddingHorizontal: 10,
+        backgroundColor: "transparent",
     },
 });

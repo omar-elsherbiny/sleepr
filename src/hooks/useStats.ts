@@ -1,111 +1,169 @@
-import { useState, useEffect } from 'react';
-import { useSharedValue } from 'react-native-reanimated';
-import { Interval, DateTime } from 'luxon';
-import { fromEpochSec, SleepLogic } from '../db/logic';
-import { SleepSessionRecord } from '../db/types';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Interval, DateTime, DurationLike } from 'luxon';
+import { fromEpochSec, SleepLogic, toISODate } from '../db/logic';
+import { GraphResults, SleepSessionRecord } from '../db/types';
 
 const LOADING_TIMEOUT = 300;
 const POLL_SIZE = 2;
-const PREFETCH_BUFFER_MS = 86400000; // 24*60*60*1000 (ms in a day)
 
-const expandInterval = (interval: Interval, n: number) => {
-    if (!interval?.isValid || !interval.start || !interval.end) {
-        throw new Error(`[StatsScreen] Invalid Luxon interval: ${interval?.invalidExplanation}`);
+export type ChunkUnit = 'day' | 'week' | 'month' | 'year';
+
+/**
+ * Generates an array of chunk intervals that cover the current view range,
+ * plus a buffer of `pollSize` chunks on either side.
+ */
+const getRequiredChunks = (viewRange: Interval, unit: ChunkUnit, pollSize: number): Interval[] => {
+    let currentStart = viewRange.start!.startOf(unit).minus({ [unit + 's']: pollSize });
+    const finalEndStart = viewRange.end!.startOf(unit).plus({ [unit + 's']: pollSize });
+
+    const chunks: Interval[] = [];
+    while (currentStart <= finalEndStart) {
+        chunks.push(Interval.fromDateTimes(currentStart, currentStart.endOf(unit)));
+        currentStart = currentStart.plus({ [unit + 's']: 1 });
     }
-
-    const durationMs = interval.toDuration().as("milliseconds");
-    const shift = durationMs * n;
-
-    return Interval.fromDateTimes(
-        interval.start.minus({ milliseconds: shift }),
-        interval.end.plus({ milliseconds: shift })
-    );
+    return chunks;
 };
 
-const useStats = (initialRange?: Interval) => {
-    const now = DateTime.now().startOf('day');
-    const defaultRange = initialRange ?? Interval.fromDateTimes(
-        now.minus({ week: 1 }),
-        now
-    );
+/** Unique key for the cache based on the chunk's exact start time */
+const getChunkKey = (chunk: Interval) => chunk.start!.toISODate()!;
+
+const useStats = (initialRange?: Interval, initialZoom: ChunkUnit = 'week') => {
+    const defaultRange = useMemo(() => {
+        const now = DateTime.now().startOf('day');
+        return initialRange ?? Interval.fromDateTimes(now.minus({ week: 1 }), now);
+    }, [initialRange]);
 
     const [isLoading, setLoading] = useState(false);
-    const [currentRange, setCurrentRange] = useState(defaultRange);
-    const [fetchedRange, setFetchedRange] = useState(expandInterval(defaultRange, POLL_SIZE));
+    const [currentRange, setCurrentRange] = useState<Interval>(defaultRange);
+    
+    // Zoom/Milestone separation for later Samsung Health style zooming
+    const [chunkUnit, setChunkUnit] = useState<ChunkUnit>(initialZoom);
 
-    const [fetchedSessions, setFetchedSessions] = useState<SleepSessionRecord[]>([]);
-    const [currentSessions, setCurrentSessions] = useState<SleepSessionRecord[]>([]);
+    // Cache: Map of chunk keys (e.g. "2024-03-11") to an array of sessions
+    const [chunksCache, setChunksCache] = useState<Record<string, SleepSessionRecord[]>>({});
 
     useEffect(() => {
-        const fetchStats = async () => {
-            const startNearEdge = currentRange.start! <= fetchedRange.start!.plus({ milliseconds: PREFETCH_BUFFER_MS });
-            const endNearEdge = currentRange.end! >= fetchedRange.end!.minus({ milliseconds: PREFETCH_BUFFER_MS });
+        let isStale = false;
+        const requiredChunks = getRequiredChunks(currentRange, chunkUnit, POLL_SIZE);
+        
+        // Find chunks we haven't fetched yet
+        const missingChunks = requiredChunks.filter(chunk => !chunksCache[getChunkKey(chunk)]);
 
-            let sessions = fetchedSessions;
+        if (missingChunks.length === 0) return;
 
-            if (startNearEdge || endNearEdge || fetchedSessions.length === 0) {
-                let loadingShown = false;
-                const timer = setTimeout(() => {
-                    setLoading(true);
-                    loadingShown = true;
-                }, LOADING_TIMEOUT);
+        let loadingShown = false;
+        const timer = setTimeout(() => {
+            setLoading(true);
+            loadingShown = true;
+        }, LOADING_TIMEOUT);
 
-                const newRange = expandInterval(currentRange, POLL_SIZE);
+        const fetchMissingChunks = async () => {
+            // To minimize DB calls, we can fetch all missing data in one span
+            const fetchStart = missingChunks[0].start!;
+            const fetchEnd = missingChunks[missingChunks.length - 1].end!;
 
-                try {
-                    // TODO: fetch chunk not all
-                    const newSessions = await SleepLogic.list({
-                        rangeStart: newRange.start!,
-                        rangeEnd: newRange.end!,
+            try {
+                // const fetchedSessions = await SleepLogic.list({
+                const fetchedSessions = await SleepLogic.fakeList({
+                    rangeStart: fetchStart,
+                    rangeEnd: fetchEnd,
+                });
+
+                if (isStale) return;
+
+                console.log(`[Stats] Fetched New Chunks:
+                    Unit: ${chunkUnit}
+                    Range: ${fetchStart.toLocal()} -> ${fetchEnd.toLocal()}
+                    Sessions Found: ${fetchedSessions.length}
+                `);
+
+                setChunksCache(prev => {
+                    const nextCache = { ...prev };
+                    
+                    // Initialize empty arrays so we know these chunks were fetched (even if empty)
+                    missingChunks.forEach(chunk => {
+                        nextCache[getChunkKey(chunk)] = [];
                     });
 
-                    console.log(`Fetch
-                        range:
-                        ${newRange.start?.toLocal()} -> ${newRange.end?.toLocal()}
-                        
-                        seshs:
-                        ${JSON.stringify(newSessions.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
-                    `);
+                    // Bucket sessions into their respective chunks
+                    fetchedSessions.forEach(session => {
+                        const sStart = fromEpochSec(session.start);
+                        const sEnd = fromEpochSec(session.end);
+                        const sessionInterval = Interval.fromDateTimes(sStart, sEnd);
 
-                    setFetchedSessions(newSessions);
-                    sessions = newSessions;
-                    setFetchedRange(newRange);
-                } finally {
-                    clearTimeout(timer);
-                    if (loadingShown) setLoading(false);
-                }
-            };
+                        missingChunks.forEach(chunk => {
+                            // If a sleep session crosses a milestone boundary (e.g., Sunday night to Monday morning), 
+                            // it will overlap and be placed into both chunk arrays securely.
+                            if (chunk.overlaps(sessionInterval)) {
+                                nextCache[getChunkKey(chunk)].push(session);
+                            }
+                        });
+                    });
 
-            // TODO:  match?: "overlapping" | "contained" 
-            const currSessions = sessions.filter(s => {
-                const sessionEnd = fromEpochSec(s.end);
-                const sessionStart = fromEpochSec(s.start);
-                return sessionEnd >= currentRange.start! && sessionStart <= currentRange.end!;
-            });
+                    return nextCache;
+                });
 
-            setCurrentSessions(currSessions);
+            } finally {
+                clearTimeout(timer);
+                if (loadingShown && !isStale) setLoading(false);
+            }
+        };
 
-            console.log(`Current
-                    range:
-                    ${currentRange.start?.toLocal()} -> ${currentRange.end?.toLocal()}
+        fetchMissingChunks();
 
-                    sheshs:
-                    ${JSON.stringify(currSessions.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
-                    `);
-        }
-        fetchStats();
-    }, [currentRange]);
+        return () => {
+            isStale = true;
+            clearTimeout(timer);
+        };
+    }, [currentRange, chunkUnit, chunksCache]);
+
+    // 1. Expose Flattened & Deduplicated Fetched Sessions
+    const flattenedFetchedSessions = useMemo(() => {
+        const allSessions = Object.values(chunksCache).flat();
+        
+        // Because sleep sessions can span multiple chunks (e.g. crossing midnight into a new week), 
+        // they might exist in multiple buckets. Deduplicate by unique start time.
+        const deduplicated = Array.from(
+            new Map(allSessions.map(s => [s.start, s])).values()
+        );
+
+        // Optional: Keep them sorted chronologically
+        return deduplicated.sort((a, b) => a.start - b.start);
+    }, [chunksCache]);
+
+    // 2. Current Sessions (Filtered specifically to the arbitrary currentRange)
+    const currentSessions = useMemo(() => {
+        return flattenedFetchedSessions.filter(s => {
+            const sessionEnd = fromEpochSec(s.end);
+            const sessionStart = fromEpochSec(s.start);
+            return sessionEnd >= currentRange.start! && sessionStart <= currentRange.end!;
+        });
+    }, [flattenedFetchedSessions, currentRange]);
+
+    // 3. Navigation Helpers for continuous infinite-scroll panning
+    const panRange = useCallback((duration: DurationLike) => {
+        setCurrentRange(prev => Interval.fromDateTimes(
+            prev.start!.plus(duration),
+            prev.end!.plus(duration)
+        ));
+    }, []);
 
     return {
         isLoading,
-
-        fetchedRange,
+        
+        // State Management
         currentRange,
         setCurrentRange,
+        panRange,
 
+        // Zoom Management (Foundation for future refactor)
+        chunkUnit,
+        setChunkUnit,
+
+        // Data Access
         currentSessions,
-        fetchedSessions,
+        fetchedSessions: flattenedFetchedSessions,
     };
-}
+};
 
 export default useStats;
