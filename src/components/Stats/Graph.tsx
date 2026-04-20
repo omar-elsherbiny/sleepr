@@ -63,6 +63,7 @@ export default function Graph({
 
     // Gesture
     const translateX = useSharedValue<number>(0);
+    const savedTranslateX = useSharedValue<number>(0);
 
     const handleScrollEnd = useCallback((finalTx: number) => {
         // Calculate the physical time window visible on the screen based on the camera position
@@ -81,19 +82,24 @@ export default function Graph({
     }, [anchorDate, width, setCurrentRange]);
 
     const pan = Gesture.Pan()
+        .onStart(() => {
+            savedTranslateX.value = translateX.value;
+        })
         .onUpdate((event) => {
-            translateX.value += event.translationX;
+            translateX.value = savedTranslateX.value + event.translationX;
         })
         .onEnd((event) => {
-            translateX.value = withDecay({
-                velocity: event.velocityX,
-                deceleration: 0.994, // Smooth, heavy friction
-            }, (finished) => {
-                if (finished) {
-                    scheduleOnRN(handleScrollEnd, translateX.value);
-                    // runOnJS(handleScrollEnd)(translateX.value);
+            translateX.value = withDecay(
+                {
+                    velocity: event.velocityX,
+                    deceleration: 0.994,
+                },
+                (finished) => {
+                    if (finished) {
+                        scheduleOnRN(handleScrollEnd, translateX.value);
+                    }
                 }
-            });;
+            );
         });
     const pinch = Gesture.Pinch()
         .onUpdate((event) => {

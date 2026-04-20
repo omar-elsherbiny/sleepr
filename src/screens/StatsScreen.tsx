@@ -47,29 +47,6 @@ export default function StatsScreen() {
     fetchedSessions
   } = useStats();
 
-  const [all, setAll] = useState<SleepSessionRecord[]>([]);
-
-  useEffect(() => {
-    const setup = async () => {
-      const sessions = await SleepLogic.list({
-        rangeStart: DateTime.now().minus({ year: 1 }),
-        rangeEnd: DateTime.now(),
-      });
-      setAll(sessions);
-      // console.log(`
-      //   All:
-      //   ${JSON.stringify(sessions.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
-
-      //   Current:
-      //   ${JSON.stringify(currentSessions.value.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
-
-      //   Fetched:
-      //   ${JSON.stringify(fetchedSessions.value.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
-      //   `);
-    }
-    setup()
-  }, [])
-
   return (
     <View style={styles.container}>
       <ScrollView
@@ -86,7 +63,7 @@ export default function StatsScreen() {
           <View style={styles.selector}></View>
         </View>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={{ marginTop: 20, padding: 40, borderRadius: 20, backgroundColor: '#19d1e6' }}
           onPress={() => {
             setCurrentRange(
@@ -103,7 +80,7 @@ export default function StatsScreen() {
             //   ${JSON.stringify(fetchedSessions.value.map(x => fromEpochSec(x.end).toLocal()), null, 2)}
             //   `)
           }}
-        />
+        /> */}
 
         <View style={styles.statsWidgetsContainer}>
           {!isLoading && (
@@ -117,7 +94,7 @@ export default function StatsScreen() {
 
         <View style={styles.statsWidgetsContainer}>
           {!isLoading && (
-            <Averages width={PAGE_WIDTH} height={200} records={all} />
+            <Averages width={PAGE_WIDTH} height={200} records={currentSessions} />
           )}
         </View>
       </ScrollView>

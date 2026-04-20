@@ -504,27 +504,31 @@ export const StatsLogic = {
     };
   },
 
-  getGraph(records: SleepSessionRecord[], maxHeight = 100): GraphResults {
+  getGraph(
+    records: SleepSessionRecord[],
+    maxHeight = 100,
+    barUnit: 'day' | 'week' | 'month' = 'day'
+  ): GraphResults {
     if (records.length === 0) return {};
 
-    const recordEnds = records.map(r => r.end);
     const rangeStart = Math.min(...records.map(r => r.start));
-    const rangeEnd = Math.max(...recordEnds);
+    const rangeEnd = Math.max(...records.map(r => r.end));
 
     const recordsMap: Record<string, number> = {};
-    let currDay = fromEpochSec(rangeStart as EpochSec).startOf('day');
-    const endDay = fromEpochSec(rangeEnd as EpochSec).endOf('day');
+
+    let currDay = fromEpochSec(rangeStart as EpochSec).startOf(barUnit);
+    const endDay = fromEpochSec(rangeEnd as EpochSec).endOf(barUnit);
 
     while (currDay <= endDay) {
       const iso = currDay.toISODate()!;
       recordsMap[iso] = 0;
-      currDay = currDay.plus({ days: 1 });
+      currDay = currDay.plus({ [barUnit + 's']: 1 });
     }
 
     records.forEach(record => {
-      const iso = fromEpochSec(record.end).toISODate()!;
-      if (recordsMap[iso] !== undefined) {
-        recordsMap[iso] += (record.end - record.start);
+      const bucketISO = fromEpochSec(record.end).startOf(barUnit).toISODate()!;
+      if (recordsMap[bucketISO] !== undefined) {
+        recordsMap[bucketISO] += (record.end - record.start);
       }
     });
 
